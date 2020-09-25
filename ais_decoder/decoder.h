@@ -16,16 +16,6 @@ using PayloadArray = std::array<unsigned char, MAX_PAYLOAD_SIZE>;
 
 struct NmeaMsg
 {
-    void init() {
-        m_message.m_pBegin = nullptr;
-        m_message.m_pEnd = nullptr;
-    }
-
-    bool valid() const {
-        return (m_message.m_pBegin != nullptr) &&
-               (m_message.m_pEnd != nullptr);
-    }
-    
     StrRef      m_message;              // whole sentence (starting '$' and '!' removed)
     StrRef      m_talkerId;             // words[0] -- AIVDM
     StrRef      m_payload;              // words[5] -- armoured ASCII payload
@@ -39,9 +29,6 @@ struct NmeaMsg
 
 struct MsgPayload
 {
-    void init() {m_bitsUsed = 0;}
-    bool valid() const {return m_bitsUsed != 0;}
-    
     PayloadArray    m_payload;
     uint32_t        m_bitsUsed;
 };
@@ -77,19 +64,19 @@ uint8_t calcCrc(const StrRef &_strMsg)
 
 
 // Read sentence from input. Returns the number of bytes read.
-size_t readSentence(NmeaMsg *_pMsg, const char *_pInput, size_t _uInputSize) {
+size_t readSentence(NmeaMsg &_msg, const char *_pInput, size_t _uInputSize) {
     char *pData = (char*)_pInput;
     const char *pEnd = pData + _uInputSize;
     
     if (strncmp(pData, "AIVDM", 5) == 0) {
-        _pMsg->m_talkerId.m_pBegin = pData;
-        _pMsg->m_talkerId.m_pEnd = pData + 5;
-        _pMsg->m_message.m_pBegin = pData; pData += 6;
-        _pMsg->m_uFragmentCount = single_digit_strtoi(pData); pData += 2;
-        _pMsg->m_uFragmentNum = single_digit_strtoi(pData); pData += 2;
+        _msg.m_talkerId.m_pBegin = pData;
+        _msg.m_talkerId.m_pEnd = pData + 5;
+        _msg.m_message.m_pBegin = pData; pData += 6;
+        _msg.m_uFragmentCount = single_digit_strtoi(pData); pData += 2;
+        _msg.m_uFragmentNum = single_digit_strtoi(pData); pData += 2;
         
         if (*pData != ',') {
-            _pMsg->m_uMsgId = double_digit_hex_strtoi(pData); pData += 3;
+            _msg.m_uMsgId = double_digit_hex_strtoi(pData); pData += 3;
         }
         else {
             pData += 1;
@@ -98,22 +85,22 @@ size_t readSentence(NmeaMsg *_pMsg, const char *_pInput, size_t _uInputSize) {
         pData += 3; // skip words[4]
         
         // find payload
-        _pMsg->m_payload.m_pBegin = pData;
+        _msg.m_payload.m_pBegin = pData;
         pData = (char*)memchr(pData, ',', _uInputSize);
         if (pData == nullptr) {
             return 0;
         }
         
-        _pMsg->m_payload.m_pEnd = pData; pData += 2;
-        _pMsg->m_message.m_pEnd = pData;
+        _msg.m_payload.m_pEnd = pData; pData += 2;
+        _msg.m_message.m_pEnd = pData;
         
         // find CRC
         if (pData >= pEnd) {
             return 0;
         }
         
-        _pMsg->m_uMsgCrc = double_digit_hex_strtoi(pData + 1);
-        pData += 2;
+        _msg.m_uMsgCrc = double_digit_hex_strtoi(pData + 1);
+        pData += 3;
     }
     
     return pData - _pInput;
@@ -121,7 +108,7 @@ size_t readSentence(NmeaMsg *_pMsg, const char *_pInput, size_t _uInputSize) {
 
 
 // Convert payload to decimal (de-armour) and concatenate 6bit decimal values. Returns the payload bits used.
-int decodeAscii(MsgPayload *_pPayload, const StrRef &_strPayload, int _iFillBits)
+int decodeAscii(MsgPayload &_payload, const StrRef &_strPayload, int _iFillBits)
 {
     static const unsigned char dLUT[256] = {
         0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
@@ -137,7 +124,7 @@ int decodeAscii(MsgPayload *_pPayload, const StrRef &_strPayload, int _iFillBits
     const unsigned char* in_ptr = (unsigned char*)_strPayload.data();
     const unsigned char* in_sentinel = in_ptr + _strPayload.size();
     const unsigned char* in_sentinel4 = in_sentinel - 4;
-    unsigned char* out_ptr = _pPayload->m_payload.data();
+    unsigned char* out_ptr = _payload.m_payload.data();
     
     uint64_t accumulator = 0;
     unsigned int acc_bitcount = 0;
@@ -206,9 +193,9 @@ int decodeAscii(MsgPayload *_pPayload, const StrRef &_strPayload, int _iFillBits
 
 
 /* unpack next _iBits (most significant bit is packed first) */
-unsigned int getUnsignedValue(const MsgPayload *_pPayload, size_t &_uBitIndex, int _iBits)
+unsigned int getUnsignedValue(const MsgPayload &_payload, size_t &_uBitIndex, int _iBits)
 {
-    const unsigned char *lptr = _pPayload->m_payload.data() + (_uBitIndex >> 3);
+    const unsigned char *lptr = _payload.m_payload.data() + (_uBitIndex >> 3);
     uint64_t bits = (uint64_t)lptr[0] << 40;
     bits |= (uint64_t)lptr[1] << 32;
     
@@ -227,9 +214,9 @@ unsigned int getUnsignedValue(const MsgPayload *_pPayload, size_t &_uBitIndex, i
 
 
 /* unpack next _iBits (most significant bit is packed first; with sign check/conversion) */
-int getSignedValue(const MsgPayload *_pPayload, size_t &_uBitIndex, int _iBits)
+int getSignedValue(const MsgPayload &_payload, size_t &_uBitIndex, int _iBits)
 {
-    const unsigned char *lptr = _pPayload->m_payload.data() + (_uBitIndex >> 3);
+    const unsigned char *lptr = _payload.m_payload.data() + (_uBitIndex >> 3);
     uint64_t bits = (uint64_t)lptr[0] << 40;
     bits |= (uint64_t)lptr[1] << 32;
     
@@ -248,7 +235,7 @@ int getSignedValue(const MsgPayload *_pPayload, size_t &_uBitIndex, int _iBits)
 
 
 /* unback string (6 bit characters) -- already cleans string (removes trailing '@' and trailing spaces) */
-std::string getString(const MsgPayload *_pPayload, size_t &_uBitIndex, int _iBits)
+std::string getString(const MsgPayload &_payload, size_t &_uBitIndex, int _iBits)
 {
     static thread_local std::array<char, 64> strdata;
     
@@ -262,7 +249,7 @@ std::string getString(const MsgPayload *_pPayload, size_t &_uBitIndex, int _iBit
     
     for (int i = 0; i < iNumChars; i++)
     {
-        unsigned int ch = getUnsignedValue(_pPayload, _uBitIndex, 6);
+        unsigned int ch = getUnsignedValue(_payload, _uBitIndex, 6);
         if (ch > 0) // stop on '@'
         {
             strdata[i] = ASCII_CHARS[ch];

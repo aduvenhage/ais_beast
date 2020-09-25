@@ -3,7 +3,7 @@ PROJECT(ais_decoder)
 SET(INCL_SRC
     decoder.h
     strutils.h
-    ringbuffer.h
+    queue.h
 )
 
 SET(LIB_SRC
