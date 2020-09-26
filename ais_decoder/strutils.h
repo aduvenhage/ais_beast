@@ -8,14 +8,61 @@
 
 const char ASCII_CHARS[]                = "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_ !\"#$%&'()*+,-./0123456789:;<=>?";
 
-struct StrRef
+
+template <int N, typename ch_t = char>
+class String
 {
-    const char *data() const {return m_pBegin;}
-    char *data() {return m_pBegin;}
-    size_t size() const {return m_pEnd - m_pBegin;}
+ public:
+    String()
+        :m_size(0)
+    {}
     
-    char *m_pBegin;
-    char *m_pEnd;
+    String(const ch_t *_psz) {
+        m_size = std::max(m_str.size(), strlen(_psz));
+        strncpy(m_str.data(), _psz, m_str.size());
+    }
+    
+    template <int PN>
+    String &operator=(const String<PN, ch_t> &_str) {
+        m_size = std::min(m_str.size(), _str.size());
+        memcpy(m_str.data(), _str.data(), m_size);
+        return *this;
+    }
+    
+    const ch_t *data() const {return m_str.data();}
+    ch_t *data() {return m_str.data();}
+    size_t size() const {return m_size;}
+    size_t maxSize() const {return N;}
+    
+    void setSize(size_t _uSize) {
+        m_size = std::min(m_str.size(), _uSize);
+    }
+    
+    template <int PN>
+    size_t append(const String<PN, ch_t> &_str) {
+        size_t offset = m_size;
+        m_size = std::min(m_str.size(), m_size + _str.size());
+        memcpy(m_str.data() + offset, _str.data(), m_size - offset);
+        return m_size;
+    }
+    
+    size_t append(const ch_t *_psz) {
+        size_t offset = m_size;
+        m_size = std::min(m_str.size(), m_size + strlen(_psz));
+        memcpy(m_str.data() + offset, _psz, m_size - offset);
+        return m_size;
+    }
+
+    size_t append(const ch_t *_pData, size_t _uSize) {
+        size_t offset = m_size;
+        m_size = std::min(m_str.size(), m_size + _uSize);
+        memcpy(m_str.data() + offset, _pData, m_size - offset);
+        return m_size;
+    }
+
+ private:
+    std::array<ch_t, N>     m_str;
+    size_t                  m_size;
 };
 
 

@@ -11,19 +11,30 @@ const size_t MAX_FRAGMENTS              = 5;
 const size_t MAX_CHARS_PER_FRAGMENT     = 82;
 const size_t MAX_PAYLOAD_SIZE           = MAX_FRAGMENTS * MAX_CHARS_PER_FRAGMENT * 6 / 8 + 1;
 
+using FrgStr = String<MAX_CHARS_PER_FRAGMENT>;
+using MsgStr = String<MAX_PAYLOAD_SIZE>;
 using PayloadArray = std::array<unsigned char, MAX_PAYLOAD_SIZE>;
+
+
+struct NmeaFrg
+{
+    FrgStr      m_sentence;             // whole sentence (starting '$' and '!' removed)
+    FrgStr      m_payload;              // words[5] -- armoured ASCII payload
+    uint8_t     m_uFragmentCount;       // words[1] -- single digit integer
+    uint8_t     m_uFragmentNum;         // words[2] -- single digit integer
+    uint8_t     m_uMsgId;               // words[3] -- multi-sentence set id
+    uint8_t     m_uChannelId;           // words[4] -- channel id character value
+    uint8_t     m_uFillBits;            // words[6] -- single digit integer
+    uint8_t     m_uMsgCrc;
+};
 
 
 struct NmeaMsg
 {
-    StrRef      m_message;              // whole sentence (starting '$' and '!' removed)
-    StrRef      m_talkerId;             // words[0] -- AIVDM
-    StrRef      m_payload;              // words[5] -- armoured ASCII payload
-    uint8_t     m_uFragmentCount;       // words[1] -- single digit integer
-    uint8_t     m_uFragmentNum;         // words[2] -- single digit integer
-    uint8_t     m_uMsgId;               // words[3] -- multi-sentence set id
+    MsgStr      m_message;              // whole sentence (starting '$' and '!' removed)
+    MsgStr      m_payload;              // words[5] -- armoured ASCII payload
+    uint8_t     m_uChannelId;           // words[4] -- channel id character value
     uint8_t     m_uFillBits;            // words[6] -- single digit integer
-    uint8_t     m_uMsgCrc;
 };
 
 
@@ -35,11 +46,12 @@ struct MsgPayload
 
 
 
-// calc message CRC
-uint8_t calcCrc(const StrRef &_strMsg)
+/* calc message CRC */
+template <int N>
+uint8_t calcCrc(const String<N> &_str)
 {
-    const unsigned char* in_ptr = (const unsigned char*)_strMsg.data();
-    const unsigned char* in_sentinel  = in_ptr + _strMsg.size();
+    const unsigned char* in_ptr = (const unsigned char*)_str.data();
+    const unsigned char* in_sentinel  = in_ptr + _str.size() - 3;
     const unsigned char* in_sentinel4 = in_sentinel - 4;
     
     uint8_t checksum = 0;
@@ -63,52 +75,88 @@ uint8_t calcCrc(const StrRef &_strMsg)
 }
 
 
-// Read sentence from input. Returns the number of bytes read.
-size_t readSentence(NmeaMsg &_msg, const char *_pInput, size_t _uInputSize) {
-    char *pData = (char*)_pInput;
-    const char *pEnd = pData + _uInputSize;
+/* Read sentence from input. Returns the number of bytes read. */
+size_t readSentence(NmeaFrg &_frg, const char *_pInput, size_t _uInputSize) {
+    const char *pBegin = _pInput;
+    const char *pEnd = _pInput + _uInputSize;
+    char *pData = (char*)pBegin;
     
+    // TODO: check agains multiple talker strings
     if (strncmp(pData, "AIVDM", 5) == 0) {
-        _msg.m_talkerId.m_pBegin = pData;
-        _msg.m_talkerId.m_pEnd = pData + 5;
-        _msg.m_message.m_pBegin = pData; pData += 6;
-        _msg.m_uFragmentCount = single_digit_strtoi(pData); pData += 2;
-        _msg.m_uFragmentNum = single_digit_strtoi(pData); pData += 2;
+         pData += 6;
+        _frg.m_uFragmentCount = single_digit_strtoi(pData); pData += 2;
+        _frg.m_uFragmentNum = single_digit_strtoi(pData); pData += 2;
         
         if (*pData != ',') {
-            _msg.m_uMsgId = double_digit_hex_strtoi(pData); pData += 3;
+            _frg.m_uMsgId = single_digit_strtoi(pData);
+            pData += 2;
         }
         else {
             pData += 1;
         }
         
-        pData += 3; // skip words[4]
+        if (*pData != ',') {
+            _frg.m_uChannelId = *((unsigned char*)pData);
+             pData += 2;
+        }
+        else {
+            pData += 1;
+        }
         
         // find payload
-        _msg.m_payload.m_pBegin = pData;
+        const char *pPayload = pData;
         pData = (char*)memchr(pData, ',', _uInputSize);
         if (pData == nullptr) {
             return 0;
         }
-        
-        _msg.m_payload.m_pEnd = pData; pData += 2;
-        _msg.m_message.m_pEnd = pData;
+
+        _frg.m_payload.append(pPayload, pData - pPayload); pData += 2;
         
         // find CRC
-        if (pData >= pEnd) {
+        if (pData + 4 >= pEnd) {
             return 0;
         }
         
-        _msg.m_uMsgCrc = double_digit_hex_strtoi(pData + 1);
+        _frg.m_uMsgCrc = double_digit_hex_strtoi(pData + 1);
         pData += 3;
+        
+        // copy sentence
+        _frg.m_sentence.append(pBegin, pData - pBegin);
     }
     
     return pData - _pInput;
 }
 
 
-// Convert payload to decimal (de-armour) and concatenate 6bit decimal values. Returns the payload bits used.
-int decodeAscii(MsgPayload &_payload, const StrRef &_strPayload, int _iFillBits)
+/* Process one sentence/fragment and possibly produce a message. Returns true if a full message was decoded. */
+bool processSentence(NmeaMsg &_msg, const NmeaFrg &_frg)
+{
+    static thread_local std::array<NmeaMsg, 10> messages;
+    
+    // check sentence CRC
+    uint8_t crc = calcCrc(_frg.m_sentence);
+    if (crc != _frg.m_uMsgCrc) {
+        return false;
+    }
+
+    if (_frg.m_uFragmentCount == 1) {
+        _msg.m_message = _frg.m_sentence;
+        _msg.m_payload = _frg.m_payload;
+        _msg.m_uChannelId = _frg.m_uChannelId;
+        _msg.m_uFillBits = _frg.m_uFillBits;
+        
+        return true;
+    }
+    else {
+    
+    }
+    
+    return false;
+}
+
+
+/* Convert payload to decimal (de-armour) and concatenate 6bit decimal values. Returns the payload bits used. */
+int decodeAscii(MsgPayload &_payload, const MsgStr &_strPayload, int _iFillBits)
 {
     static const unsigned char dLUT[256] = {
         0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,

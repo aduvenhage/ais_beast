@@ -16,7 +16,7 @@ constexpr bool isPowerOf2(int _n) {
 }
 
 
-/* Ring buffer based queue (thread-safe for single producer / single consumer) */
+/* Ring buffer based queue (lock free and thread-safe for single producer / single consumer) */
 template <typename payload_type, int N>
 class Queue
 {
@@ -68,6 +68,7 @@ class Queue
     std::atomic<uint32_t>          m_uFront;
     std::atomic<uint32_t>          m_uBack;
 };
+
 
 
 

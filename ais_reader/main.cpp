@@ -68,42 +68,23 @@ struct Chunk
 };
 
 
-using NmeaData = Chunk<char, 1024 * 1024>;
+using Fragments = Chunk<NmeaFrg, 1024 * 8>;
 using Messages = Chunk<NmeaMsg, 1024 * 8>;
 using Payloads = Chunk<MsgPayload, 1024 * 4>;
 
-Queue<std::unique_ptr<NmeaData>, 128> dataQueue;
+Queue<std::unique_ptr<Fragments>, 1024 * 4> fragmentQueue;
 Queue<std::unique_ptr<Messages>, 1024 * 4> messageQueue;
 Queue<std::unique_ptr<Payloads>, 1024 * 4> payloadQueue;
+String<1024*1024, char> nmeaData;
 
 
 using Clock = std::chrono::high_resolution_clock;
-FILE                *fin = nullptr;
-
-
-
-
+FILE *fin = nullptr;
 
 
 void readFromFile() {
+    
     if (messageQueue.full() == false) {
-        // create or re-use new data block
-        std::unique_ptr<NmeaData> pNmeaData;
-        if (dataQueue.full() == true) {
-            dataQueue.pop(pNmeaData);
-            pNmeaData->reset();
-        }
-        else {
-            pNmeaData = std::make_unique<NmeaData>();
-        }
-        
-        // add dropped data from last data block
-        if (dataQueue.empty() == false) {
-            auto &pOldNmeaData = dataQueue.back();
-            memcpy(pNmeaData->begin(), pOldNmeaData->begin() + pOldNmeaData->m_index, pOldNmeaData->m_count - pOldNmeaData->m_index);
-            pNmeaData->m_count = pOldNmeaData->m_count - pOldNmeaData->m_index;
-        }
-        
         // read from file
         if ( (fin == nullptr) ||
              (feof(fin) == 1) )
@@ -118,41 +99,43 @@ void readFromFile() {
         if ( (fin != nullptr) &&
              (feof(fin) == 0) )
         {
-            int n = fread(&pNmeaData->data(), 1, pNmeaData->maxSize() - pNmeaData->count(), fin);
-            pNmeaData->m_count += n;
+            int n = fread(nmeaData.data() + nmeaData.size(), 1, nmeaData.maxSize() - nmeaData.size(), fin);
+            nmeaData.setSize(nmeaData.size() + n);
         }
         
         // process data
-        char *pData = pNmeaData->begin();
-        char *pEnd = pNmeaData->end();
-        auto pMessages = std::make_unique<Messages>();
+        char *pData = nmeaData.data();
+        char *pEnd = pData + nmeaData.size();
+        auto pFragments = std::make_unique<Fragments>();
 
         while (pData < pEnd) {
             // skip '!' and '$'
             pData = (*pData == '!') ? pData + 1 : pData;
             pData = (*pData == '$') ? pData + 1 : pData;
 
-            auto &message = pMessages->data();
-            size_t n = readSentence(message, pData, pEnd - pData);
+            auto &fragment = pFragments->data();
+            size_t n = readSentence(fragment, pData, pEnd - pData);
             if (n > 0) {
                 // read EOLs
                 pData += n;
                 pData = ((pData < pEnd) && (*pData == '\r')) ? pData + 1 : pData;
                 pData = ((pData < pEnd) && (*pData == '\n')) ? pData + 1 : pData;
-                pNmeaData->m_index = pData - pNmeaData->begin();
                 
                 // try to output message
-                pMessages->next();
-                if (pMessages->full() == true) {
-                    messageQueue.push(std::move(pMessages));
+                pFragments->next();
+                if (pFragments->full() == true) {
+                    fragmentQueue.push(std::move(pFragments));
                     
                     // stop if queue is full, or continue
                     if (messageQueue.full() == true) {
-                        // dropped data should be picked up on next read
+                        // keep dropped data for next read
+                        size_t droppedSize = pEnd - pData;
+                        memcpy(nmeaData.data(), pData, droppedSize);
+                        nmeaData.setSize(droppedSize);
                         break;
                     }
                     else {
-                        pMessages = std::make_unique<Messages>();
+                        pFragments = std::make_unique<Fragments>();
                     }
                 }
             }
@@ -165,18 +148,19 @@ void readFromFile() {
                 
                 // end of data reached
                 else {
+                    // keep dropped data for next read
+                    size_t droppedSize = pEnd - pData;
+                    memcpy(nmeaData.data(), pData, droppedSize);
+                    nmeaData.setSize(droppedSize);
                     break;
                 }
             }
         }
 
-        // output last message
-        if (pMessages->empty() == false) {
-            messageQueue.push(std::move(pMessages));
+        // output last fragments
+        if (pFragments->empty() == false) {
+            fragmentQueue.push(std::move(pFragments));
         }
-        
-        // keep data
-        dataQueue.push(std::move(pNmeaData));
     }
 }
 
@@ -185,6 +169,11 @@ void readMessages() {
     for (;;) {
         readFromFile();
     }
+}
+
+
+void processFragments() {
+
 }
 
 
@@ -199,11 +188,15 @@ void processMessages() {
             if (messageQueue.pop(pMessages) == true) {
                 auto &messages = *pMessages;
                 for (auto &msg : messages) {
-                    uint8_t crc = calcCrc(msg.m_message);
+                    uint8_t crc = calcCrc(msg.m_sentence);
                     if (crc == msg.m_uMsgCrc) {
                         auto &payload = pPayloads->data();
                         payload.m_bitsUsed = decodeAscii(payload, msg.m_payload, msg.m_uFillBits);
+                        
                         if (payload.m_bitsUsed > 0) {
+                            size_t uBitIndex = 0;
+                            int msgType = getUnsignedValue(payload, uBitIndex, 6);
+
                             pPayloads->next();
                             if (pPayloads->full() == true) {
                                 payloadQueue.push(std::move(pPayloads));
@@ -246,7 +239,7 @@ int main() {
                 
                 uMsgCount++;
                 
-                if ( (uMsgCount > 0) && (uMsgCount % 2000000 == 0) ) {
+                if ( (uMsgCount > 0) && (uMsgCount % 200000 == 0) ) {
                     auto td = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - ts).count() * 1e-09;
                     printf("message = %lu, per second = %.2f\n", uMsgCount, (float)(uMsgCount / td));
                 }
