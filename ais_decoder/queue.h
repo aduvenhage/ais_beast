@@ -18,14 +18,14 @@ constexpr bool isPowerOf2(int _n) {
 
 /* Ring buffer based queue (lock free and thread-safe for single producer / single consumer) */
 template <typename payload_type, int N>
-class Queue
+class LockFreeQueue
 {
  static_assert(isPowerOf2(N), "Queue internal size should be a power of two.");
  protected:
     const size_t    MASK = N-1;
     
  public:
-    Queue()
+    LockFreeQueue()
         :m_uFront(0),
          m_uBack(0)
     {}

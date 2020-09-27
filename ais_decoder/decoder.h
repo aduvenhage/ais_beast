@@ -1,10 +1,12 @@
 #ifndef AIS_DECODER_H
 #define AIS_DECODER_H
 
+#include "strutils.h"
+
+
 #include <array>
 #include <cstring>
 #include <string>
-
 
 
 const size_t MAX_FRAGMENTS              = 5;
@@ -15,6 +17,8 @@ using FrgStr = String<MAX_CHARS_PER_FRAGMENT>;
 using MsgStr = String<MAX_PAYLOAD_SIZE>;
 using PayloadArray = std::array<unsigned char, MAX_PAYLOAD_SIZE>;
 
+
+// TODO: overload new and delete and reuse objects for frg, msg & payload
 
 struct NmeaFrg
 {
@@ -43,7 +47,6 @@ struct MsgPayload
     PayloadArray    m_payload;
     uint32_t        m_bitsUsed;
 };
-
 
 
 /* calc message CRC */
@@ -156,7 +159,7 @@ bool processSentence(NmeaMsg &_msg, const NmeaFrg &_frg)
 
 
 /* Convert payload to decimal (de-armour) and concatenate 6bit decimal values. Returns the payload bits used. */
-int decodeAscii(MsgPayload &_payload, const MsgStr &_strPayload, int _iFillBits)
+int decodeAscii(MsgPayload &_payload, const NmeaMsg &_msg)
 {
     static const unsigned char dLUT[256] = {
         0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
@@ -169,8 +172,8 @@ int decodeAscii(MsgPayload &_payload, const MsgStr &_strPayload, int _iFillBits)
         0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
     };
     
-    const unsigned char* in_ptr = (unsigned char*)_strPayload.data();
-    const unsigned char* in_sentinel = in_ptr + _strPayload.size();
+    const unsigned char* in_ptr = (unsigned char*)_msg.m_payload.data();
+    const unsigned char* in_sentinel = in_ptr + _msg.m_payload.size();
     const unsigned char* in_sentinel4 = in_sentinel - 4;
     unsigned char* out_ptr = _payload.m_payload.data();
     
@@ -236,7 +239,7 @@ int decodeAscii(MsgPayload &_payload, const MsgStr &_strPayload, int _iFillBits)
     }
     *((uint64_t*)out_ptr) = bswap64(accumulator);
     
-    return (int)(_strPayload.size() * 6 - _iFillBits);
+    return (int)(_msg.m_payload.size() * 6 -_msg.m_uFillBits);
 }
 
 
