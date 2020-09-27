@@ -1,40 +1,17 @@
 #ifndef AIS_PROCESSING_H
 #define AIS_PROCESSING_H
 
+#include "chunk.h"
 #include "decoder.h"
 #include "queue.h"
 
 #include <memory>
 
 
-// Fixed size grouping of decoder structures
-template <typename payload_type, int N>
-struct Chunk
-{
-    Chunk()
-        :m_count(0),
-         m_index(0)
-    {}
-
-    payload_type &data() {return m_data.data()[m_count];}
-    void next() {m_count++;}
-    void reset() {m_count = 0; m_index = 0;}
-    bool full() const {return m_count >= N;}
-    bool empty() const {return m_count == 0;}
-    payload_type *begin() {return m_data.data();}
-    payload_type *end() {return m_data.data() + m_count;}
-    size_t count() const {return m_count;}
-    size_t maxSize() const {return (size_t)N;}
-    
-    std::array<payload_type, N>   m_data;
-    size_t                        m_count;      // size used
-    size_t                        m_index;      // size processed
-};
-
-
-using Fragments = Chunk<NmeaFrg, 1024 * 2>;
-using Messages = Chunk<NmeaMsg, 1024 * 2>;
-using Payloads = Chunk<MsgPayload, 1024 * 2>;
+const size_t AIS_CHUNK_SIZE = 512;
+using Fragments = Chunk<NmeaFrg, AIS_CHUNK_SIZE>;
+using Messages = Chunk<NmeaMsg, AIS_CHUNK_SIZE>;
+using Payloads = Chunk<MsgPayload, AIS_CHUNK_SIZE>;
 
 
 /*
@@ -96,7 +73,9 @@ size_t processNmeaData(QueueFragments &_fragmentQueue, const NmeaData &_nmeaData
     }
 
     // output last fragments
-    if (pFragments->empty() == false) {
+    if ( (pFragments != nullptr) &&
+         (pFragments->empty() == false) )
+    {
         _fragmentQueue.push(std::move(pFragments));
     }
     
@@ -131,7 +110,9 @@ size_t processFragments(QueueMessages &_messageQueue, QueueFragments &_fragmentQ
                 count++;
             }
 
-            if (pMessages->empty() == false) {
+            if ( (pMessages != nullptr) &&
+                 (pMessages->empty() == false) )
+            {
                 _messageQueue.push(std::move(pMessages));
             }
         }
@@ -170,7 +151,9 @@ size_t processMessages(QueuePayloads &_payloadQueue, QueueMessages &_messageQueu
                 count++;
             }
 
-            if (pPayloads->empty() == false) {
+            if ( (pPayloads != nullptr) &&
+                 (pPayloads->empty() == false) )
+            {
                 _payloadQueue.push(std::move(pPayloads));
             }
         }

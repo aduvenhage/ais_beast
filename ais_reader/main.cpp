@@ -21,12 +21,12 @@
 
 
 template <typename payload_type>
-using Queue = LockFreeQueue<payload_type, 1024 * 4>;
+using Queue = LockFreeQueue<payload_type, 1024>;
 
 Queue<std::unique_ptr<Fragments>> fragmentQueue;
 Queue<std::unique_ptr<Messages>> messageQueue;
 Queue<std::unique_ptr<Payloads>> payloadQueue;
-String<1024*64, char> nmeaData;
+String<1024*32, char> nmeaData;
 
 
 using Clock = std::chrono::high_resolution_clock;
@@ -61,7 +61,7 @@ void readFromFile()
         nmeaData.setSize(droppedSize);
     }
     else {
-        std::this_thread::sleep_for(std::chrono::milliseconds(0));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 }
 
@@ -76,7 +76,7 @@ void readMessages() {
 void procFragments() {
     for (;;) {
         if (processFragments(messageQueue, fragmentQueue) == 0) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(0));
+            //std::this_thread::sleep_for(std::chrono::milliseconds(0));
         }
     }
 }
@@ -85,7 +85,7 @@ void procFragments() {
 void procMessages() {
     for (;;) {
         if (processMessages(payloadQueue, messageQueue) == 0) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(0));
+            //std::this_thread::sleep_for(std::chrono::milliseconds(0));
         }
     }
 }
@@ -94,6 +94,8 @@ void procMessages() {
     
 
 int main() {
+    new NmeaFrg();
+    
     auto ts = Clock::now();
     size_t uMsgCount = 0;
     
@@ -119,7 +121,7 @@ int main() {
             }
         }
         else {
-            std::this_thread::sleep_for(std::chrono::milliseconds(0));
+            //std::this_thread::sleep_for(std::chrono::milliseconds(0));
         }
     }
     
