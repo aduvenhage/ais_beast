@@ -2,14 +2,14 @@
 #define AIS_DECODER_H
 
 #include "strutils.h"
-
+#include "mem_pool.h"
 
 #include <array>
 #include <cstring>
 #include <string>
 
 
-const size_t MAX_FRAGMENTS              = 5;
+const size_t MAX_FRAGMENTS              = 3;
 const size_t MAX_CHARS_PER_FRAGMENT     = 82;
 const size_t MAX_PAYLOAD_SIZE           = MAX_FRAGMENTS * MAX_CHARS_PER_FRAGMENT * 6 / 8 + 1;
 

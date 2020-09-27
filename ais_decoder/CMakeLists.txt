@@ -1,7 +1,9 @@
 PROJECT(ais_decoder)
 
 SET(INCL_SRC
+    chunk.h
     decoder.h
+    mem_pool.h
     processing.h
     strutils.h
     queue.h
