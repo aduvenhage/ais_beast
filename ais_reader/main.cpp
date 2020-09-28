@@ -26,7 +26,7 @@ using Queue = LockFreeQueue<payload_type, 1024>;
 Queue<std::unique_ptr<Fragments>> fragmentQueue;
 Queue<std::unique_ptr<Messages>> messageQueue;
 Queue<std::unique_ptr<Payloads>> payloadQueue;
-String<1024*32, char> nmeaData;
+String<1024*512> nmeaData;
 
 
 using Clock = std::chrono::high_resolution_clock;
@@ -61,62 +61,91 @@ void readFromFile()
         nmeaData.setSize(droppedSize);
     }
     else {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        std::this_thread::sleep_for(std::chrono::milliseconds(0));
     }
 }
 
 
-void readMessages() {
+void readFragments() {
     for (;;) {
         readFromFile();
     }
 }
 
 
-void procFragments() {
+void procFragmentsQueue() {
     for (;;) {
         if (processFragments(messageQueue, fragmentQueue) == 0) {
-            //std::this_thread::sleep_for(std::chrono::milliseconds(0));
+            std::this_thread::sleep_for(std::chrono::milliseconds(0));
         }
     }
 }
 
 
-void procMessages() {
+void procMessagesQueue() {
     for (;;) {
         if (processMessages(payloadQueue, messageQueue) == 0) {
-            //std::this_thread::sleep_for(std::chrono::milliseconds(0));
+            std::this_thread::sleep_for(std::chrono::milliseconds(0));
         }
     }
 }
 
 
-    
-
-int main() {
-    new NmeaFrg();
-    
+void procPayloadsQueue() {
     auto ts = Clock::now();
     size_t uMsgCount = 0;
-    
-    auto thread1 = std::thread(readMessages);
-    auto thread2 = std::thread(procFragments);
-    auto thread3 = std::thread(procMessages);
     
     for (;;) {
         std::unique_ptr<Payloads> pPayloads;
         if (payloadQueue.pop(pPayloads) == true) {
             for (MsgPayload &p : *pPayloads) {
                 size_t uBitIndex = 0;
-                int msgType = getUnsignedValue(p, uBitIndex, 6);
-                getUnsignedValue(p, uBitIndex, 2);                 // repeatIndicator
-                auto mmsi = getUnsignedValue(p, uBitIndex, 30);
                 
+                int msgType = getUnsignedValue(p, uBitIndex, 6);
+                if (msgType == 5)
+                {
+                    getUnsignedValue(p, uBitIndex, 2);                 // repeatIndicator
+                    auto mmsi = getUnsignedValue(p, uBitIndex, 30);
+                    getUnsignedValue(p, uBitIndex, 2);                 // AIS version
+                    auto imo = getUnsignedValue(p, uBitIndex, 30);
+                    auto callsign = getString(p, uBitIndex, 42);
+                    auto name = getString(p, uBitIndex, 120);
+                    auto type = getUnsignedValue(p, uBitIndex, 8);
+                    
+                    //printf("mmsi=%lu, callsign=%s, name=%s\n", mmsi, callsign.c_str(), name.c_str());
+                }
+                else if ( (msgType == 1) ||
+                          (msgType == 2) ||
+                          (msgType == 3) )
+                {
+                    getUnsignedValue(p, uBitIndex, 2);                 // repeatIndicator
+                    auto mmsi = getUnsignedValue(p, uBitIndex, 30);
+                    auto navstatus = getUnsignedValue(p, uBitIndex, 4);
+                    auto rot = getSignedValue(p, uBitIndex, 8);
+                    auto sog = getUnsignedValue(p, uBitIndex, 10);
+                    auto posAccuracy = getBoolValue(p, uBitIndex);
+                    auto posLon = getSignedValue(p, uBitIndex, 28);
+                    auto posLat = getSignedValue(p, uBitIndex, 27);
+                    auto cog = (int)getUnsignedValue(p, uBitIndex, 12);
+                    auto heading = (int)getUnsignedValue(p, uBitIndex, 9);
+                    
+                    getUnsignedValue(p, uBitIndex, 6);     // timestamp
+                    getUnsignedValue(p, uBitIndex, 2);     // maneuver indicator
+                    getUnsignedValue(p, uBitIndex, 3);     // spare
+                    getBoolValue(p, uBitIndex);          // RAIM
+                    getUnsignedValue(p, uBitIndex, 19);     // radio status
+                    
+                    //printf("mmsi=%lu, lon=%lu, lat=%lu\n", mmsi, posLon, posLat);
+                }
+
                 uMsgCount++;
                 
-                if ( (uMsgCount > 0) && (uMsgCount % 2000000 == 0) ) {
+                if (uMsgCount > 5000000) {
                     auto td = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - ts).count() * 1e-09;
                     printf("message = %lu, per second = %.2f\n", uMsgCount, (float)(uMsgCount / td));
+
+                    ts = Clock::now();
+                    uMsgCount = 0;
                 }
             }
         }
@@ -124,9 +153,36 @@ int main() {
             //std::this_thread::sleep_for(std::chrono::milliseconds(0));
         }
     }
+}
+
+
+
+    
+
+int main() {
+    int s1 = sizeof(NmeaFrg);
+    int s2 = sizeof(NmeaMsg);
+    int s3 = sizeof(MsgPayload);
+    
+    
+    auto thread1 = std::thread(readFragments);
+    auto thread2 = std::thread(procFragmentsQueue);
+    auto thread3 = std::thread(procMessagesQueue);
+    auto thread4 = std::thread(procPayloadsQueue);
+    
+    for (;;) {
+        printf("frgq=%d, msgq=%d, pldq=%d\n",
+               (int)fragmentQueue.size(),
+               (int)messageQueue.size(),
+               (int)payloadQueue.size());
+               
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    }
     
     thread1.join();
-    thread2.join();
+    thread1.join();
+    thread1.join();
+    thread1.join();
 }
 
 

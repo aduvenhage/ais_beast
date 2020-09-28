@@ -9,7 +9,24 @@
 const char ASCII_CHARS[]                = "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_ !\"#$%&'()*+,-./0123456789:;<=>?";
 
 
-template <int N, typename ch_t = char>
+// Reference to a sub-string from String
+struct StringRef
+{
+    StringRef()
+        :m_pData(nullptr),
+         m_uOffset(0),
+         m_uSize(0)
+    {}
+    
+    char      *m_pData;
+    size_t    m_uOffset;
+    size_t    m_uSize;
+};
+
+
+
+
+template <int N>
 class String
 {
  public:
@@ -17,20 +34,26 @@ class String
         :m_size(0)
     {}
     
-    String(const ch_t *_psz) {
+    String(const char *_psz) {
         m_size = std::max(m_str.size(), strlen(_psz));
         strncpy(m_str.data(), _psz, m_str.size());
     }
     
     template <int PN>
-    String &operator=(const String<PN, ch_t> &_str) {
+    String &operator=(const String<PN> &_str) {
         m_size = std::min(m_str.size(), _str.size());
         memcpy(m_str.data(), _str.data(), m_size);
         return *this;
     }
     
-    const ch_t *data() const {return m_str.data();}
-    ch_t *data() {return m_str.data();}
+    String &operator=(const StringRef &_str) {
+        m_size = std::min(m_str.size(), _str.m_uSize);
+        memcpy(m_str.data(), _str.m_pData + _str.m_uOffset, m_size);
+        return *this;
+    }
+    
+    const char *data() const {return m_str.data();}
+    char *data() {return m_str.data();}
     size_t size() const {return m_size;}
     size_t maxSize() const {return N;}
     
@@ -39,29 +62,33 @@ class String
     }
     
     template <int PN>
-    size_t append(const String<PN, ch_t> &_str) {
+    size_t append(const String<PN> &_str) {
         size_t offset = m_size;
         m_size = std::min(m_str.size(), m_size + _str.size());
         memcpy(m_str.data() + offset, _str.data(), m_size - offset);
         return m_size;
     }
     
-    size_t append(const ch_t *_psz) {
+    size_t append(const char *_psz) {
         size_t offset = m_size;
         m_size = std::min(m_str.size(), m_size + strlen(_psz));
         memcpy(m_str.data() + offset, _psz, m_size - offset);
         return m_size;
     }
 
-    size_t append(const ch_t *_pData, size_t _uSize) {
+    size_t append(const char *_pData, size_t _uSize) {
         size_t offset = m_size;
         m_size = std::min(m_str.size(), m_size + _uSize);
         memcpy(m_str.data() + offset, _pData, m_size - offset);
         return m_size;
     }
 
+    size_t append(const StringRef &_str) {
+        return append(_str.m_pData + _str.m_uOffset, _str.m_uSize);
+    }
+
  private:
-    std::array<ch_t, N>     m_str;
+    std::array<char, N>     m_str;
     size_t                  m_size;
 };
 
@@ -75,7 +102,7 @@ int_type bswap64(int_type _i) {
 // very fast single digit string to int
 inline int single_digit_strtoi(const char *pData)
 {
-    return (*pData - '0') & 0x09;
+    return (*pData - '0') & 0x0F;
 }
 
 

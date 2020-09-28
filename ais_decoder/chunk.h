@@ -4,34 +4,37 @@
 #include "mem_pool.h"
  
 
-// Fixed size grouping of decoder structures
+// Fixed size array of decoder structures
 template <typename payload_type, int N>
 struct Chunk
 {
     Chunk()
-        :m_count(0),
-         m_index(0)
+        :m_size(0)
     {}
 
-    payload_type &data() {
-        return m_data.data()[m_count];
+    payload_type &back() {
+        return m_data.data()[m_size-1];
     }
     
-    void next() {
-        m_count++;
+    payload_type &push_back() {
+        m_size += m_size < N ? 1 : 0;
+        return back();
     }
 
-    void reset() {
-        m_count = 0;
-        m_index = 0;
+    void pop_back() {
+        m_size -= m_size > 0 ? 1 : 0;
+    }
+
+    void clear() {
+        m_size = 0;
     }
 
     bool full() const {
-        return m_count >= N;
+        return m_size >= N;
     }
 
     bool empty() const {
-        return m_count == 0;
+        return m_size == 0;
     }
 
     payload_type *begin() {
@@ -39,11 +42,11 @@ struct Chunk
     }
 
     payload_type *end() {
-        return m_data.data() + m_count;
+        return m_data.data() + m_size;
     }
 
-    size_t count() const {
-        return m_count;
+    size_t size() const {
+        return m_size;
     }
 
     size_t maxSize() const {
@@ -59,8 +62,7 @@ struct Chunk
     }
     
     std::array<payload_type, N>   m_data;
-    size_t                        m_count;      // size used
-    size_t                        m_index;      // size processed
+    size_t                        m_size;
 };
 
 

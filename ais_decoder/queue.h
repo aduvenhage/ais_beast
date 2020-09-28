@@ -22,7 +22,7 @@ class LockFreeQueue
 {
  static_assert(isPowerOf2(N), "Queue internal size should be a power of two.");
  protected:
-    const size_t    MASK = N-1;
+    const size_t            MASK = N-1;
     
  public:
     LockFreeQueue()
@@ -41,7 +41,7 @@ class LockFreeQueue
         return true;
     }
     
-    payload_type &back() {
+    payload_type &back() { 
         return m_array[(m_uBack-1) & MASK];
     }
     
@@ -55,6 +55,16 @@ class LockFreeQueue
         return true;
     }
     
+    payload_type pop() {
+        if (empty() == true) {
+            return payload_type();
+        }
+        
+        auto p = std::move(m_array[m_uFront & MASK]);
+        m_uFront++;
+        return p;
+    }
+    
     bool empty() const {
         return m_uBack == m_uFront;
     }
@@ -63,13 +73,15 @@ class LockFreeQueue
         return m_uBack - m_uFront >= N;
     }
     
+    size_t size() const {
+        return m_uBack - m_uFront;
+    }
+    
  private:
     std::array<payload_type, N>    m_array;
     std::atomic<uint32_t>          m_uFront;
     std::atomic<uint32_t>          m_uBack;
 };
-
-
 
 
 
