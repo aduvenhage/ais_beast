@@ -1,10 +1,11 @@
 # ais_beast
 Faster AIS decoder (multi-threaded and hopefully GPU enabled)
+Ais reference: https://gpsd.gitlab.io/gpsd/AIVDM.html
+Previous version of decoder: https://github.com/aduvenhage/ais-decoder
 
 Features:
 - Super fast C++ AIS decoding.
 - Multi-stage and support for multi-threading and multi-processing
-
 
 
 DONE:

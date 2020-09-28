@@ -15,28 +15,35 @@ using Payloads = Chunk<MsgPayload, AIS_CHUNK_SIZE>;
 
 
 /*
-    Process NMEA raw input data. Tries to all data in input.
-    Stops when output queue is full.
+    Process NMEA raw input data.
+    Processes only one chunk of data at a time.
     Returns the number of bytes processed from the input.
  */
 template <typename QueueFragments, typename NmeaData>
 size_t processNmeaData(QueueFragments &_fragmentQueue, const NmeaData &_nmeaData)
 {
-    if (_fragmentQueue.full() == true) {
-        return 0;
-    }
-    
     // process data
     char *pData = const_cast<char*>(_nmeaData.data());
     char *pEnd = pData + _nmeaData.size();
-    auto pFragments = std::make_unique<Fragments>();
-
+    std::unique_ptr<Fragments> pFragments;
+    
     while (pData < pEnd) {
+        // stop if queue is full
+        if (_fragmentQueue.full() == true) {
+            break;
+        }
+        
+        if (pFragments == nullptr) {
+            pFragments = std::make_unique<Fragments>();
+        }
+        
+        // TODO: process header and footer on special formats
+
         // skip '!' and '$'
         pData = (*pData == '!') ? pData + 1 : pData;
         pData = (*pData == '$') ? pData + 1 : pData;
 
-        auto &fragment = pFragments->data();
+        auto &fragment = pFragments->push_back();
         size_t n = readSentence(fragment, pData, pEnd - pData);
         if (n > 0) {
             // read EOLs
@@ -44,21 +51,15 @@ size_t processNmeaData(QueueFragments &_fragmentQueue, const NmeaData &_nmeaData
             pData = ((pData < pEnd) && (*pData == '\r')) ? pData + 1 : pData;
             pData = ((pData < pEnd) && (*pData == '\n')) ? pData + 1 : pData;
             
-            // try to output fragment
-            pFragments->next();
+            // try to output full chunk
             if (pFragments->full() == true) {
                 _fragmentQueue.push(std::move(pFragments));
-                
-                // stop if queue is full, or continue
-                if (_fragmentQueue.full() == true) {
-                    break;
-                }
-                else {
-                    pFragments = std::make_unique<Fragments>();
-                }
             }
         }
         else {
+            // nothing read, so rewind
+            pFragments->pop_back();
+            
             // skip to next line
             auto pNewData = (char*)memchr(pData, '\n', pEnd - pData);
             if (pNewData != nullptr) {
@@ -72,7 +73,7 @@ size_t processNmeaData(QueueFragments &_fragmentQueue, const NmeaData &_nmeaData
         }
     }
 
-    // output last fragments
+    // output last chunk
     if ( (pFragments != nullptr) &&
          (pFragments->empty() == false) )
     {
@@ -84,37 +85,40 @@ size_t processNmeaData(QueueFragments &_fragmentQueue, const NmeaData &_nmeaData
 
 
 /*
-    Process fragments and produce messages. Stops when output queue is full.
+    Process fragments and produce messages.
+    Stops when output queue is full.
     Returns the number of fragments processed.
 */
 template <typename QueueMessages, typename QueueFragments>
 size_t processFragments(QueueMessages &_messageQueue, QueueFragments &_fragmentQueue)
 {
     size_t count = 0;
-    if (_messageQueue.full() == false) {
-        for (;;) {
-            std::unique_ptr<Fragments> pFragments;
-            if (_fragmentQueue.pop(pFragments) == false) {
-                break;
-            }
+    for (int i = 0; i < 128; i++) {
+        if (_messageQueue.full() == true) {
+            break;
+        }
+        
+        auto pFragments = _fragmentQueue.pop();
+        if (pFragments == nullptr) {
+            break;
+        }
 
-            auto pMessages = std::make_unique<Messages>();
-            auto &fragments = *pFragments;
-            for (auto &frg : fragments) {
-                auto &message = pMessages->data();
-                if (processSentence(message, frg) == true) {
-                    pMessages->next();
-                    assert(pMessages->full() == false);
-                }
-                
-                count++;
+        auto pMessages = std::make_unique<Messages>();
+        auto &fragments = *pFragments;
+        for (auto &frg : fragments) {
+            assert(pMessages->full() == false);
+            auto &message = pMessages->push_back();
+            if (processSentence(message, frg) == false) {
+                pMessages->pop_back();
             }
+            
+            count++;
+        }
 
-            if ( (pMessages != nullptr) &&
-                 (pMessages->empty() == false) )
-            {
-                _messageQueue.push(std::move(pMessages));
-            }
+        if ( (pMessages != nullptr) &&
+             (pMessages->empty() == false) )
+        {
+            _messageQueue.push(std::move(pMessages));
         }
     }
     
@@ -123,39 +127,41 @@ size_t processFragments(QueueMessages &_messageQueue, QueueFragments &_fragmentQ
 
 
 /*
-    Process messages and produce decoded payloads.  Stops when output queue is full.
+    Process messages and produce decoded payloads.
+    Stops when output queue is full.
     Returns the number of messages processed.
 */
 template <typename QueuePayloads, typename QueueMessages>
 size_t processMessages(QueuePayloads &_payloadQueue, QueueMessages &_messageQueue)
 {
     size_t count = 0;
-    
-    if (_payloadQueue.full() == false) {
-        for (;;) {
-            std::unique_ptr<Messages> pMessages;
-            if (_messageQueue.pop(pMessages) == false) {
-                break;
+    for (int i = 0; i < 128; i++) {
+        if (_payloadQueue.full() == true) {
+            break;
+        }
+        
+        auto pMessages = _messageQueue.pop();
+        if (pMessages == nullptr) {
+            break;
+        }
+            
+        auto pPayloads = std::make_unique<Payloads>();
+        auto &messages = *pMessages;
+        for (auto &msg : messages) {
+            assert(pPayloads->full() == false);
+            auto &payload = pPayloads->push_back();
+            if (decodeAscii(payload, msg) == 0) {
+                // nothing decoded, so rewind
+                pPayloads->pop_back();
             }
-                
-            auto pPayloads = std::make_unique<Payloads>();
-            auto &messages = *pMessages;
-            for (auto &msg : messages) {
-                auto &payload = pPayloads->data();
-                payload.m_bitsUsed = decodeAscii(payload, msg);
-                if (payload.m_bitsUsed > 0) {
-                    pPayloads->next();
-                    assert(pPayloads->full() == false);
-                }
-                
-                count++;
-            }
+            
+            count++;
+        }
 
-            if ( (pPayloads != nullptr) &&
-                 (pPayloads->empty() == false) )
-            {
-                _payloadQueue.push(std::move(pPayloads));
-            }
+        if ( (pPayloads != nullptr) &&
+             (pPayloads->empty() == false) )
+        {
+            _payloadQueue.push(std::move(pPayloads));
         }
     }
     
