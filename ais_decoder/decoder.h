@@ -98,14 +98,9 @@ uint8_t calcCrc(const String<N> &_str)
 
 /* check talker id */
 bool checkType(const char *_pId) {
-    bool bType = (strncmp(_pId+2, "VDM", 3) == 0) ||
-                 (strncmp(_pId+2, "VDO", 3) == 0);
-                 
-    bool bTalker = bType &&
-                   ((strncmp(_pId, "AI", 2) == 0) ||
-                    (strncmp(_pId, "BS", 2) == 0));
-
-    return bTalker;
+    // NOTE: essentially allow all talker IDs (first 2 chars -- AB, AI, BS, SA, etc.)
+    return (strncmp(_pId+2, "VDM", 3) == 0) ||
+           (strncmp(_pId+2, "VDO", 3) == 0);
 }
 
 
