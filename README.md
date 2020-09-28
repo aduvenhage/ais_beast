@@ -23,7 +23,7 @@ Current stats:
 - Release build: 17M+ messages per second
 
 DONE:
-- fixed decoding structures (fragments, messages, payloads)
+- decoding structures (fragments, messages, payloads)
 - basic nmea sentence decoding
 - crc checks
 - payload de-armouring
