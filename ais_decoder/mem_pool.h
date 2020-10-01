@@ -9,6 +9,7 @@
 
 
 
+/* Stack like pool of memory for a single type. */
 template <typename obj_type>
 class MemoryPool
 {
@@ -24,10 +25,12 @@ class MemoryPool
         return thePool;
     }
     
+    // allocate or find available objects
     static void *getObjectPtr() {
         return instance().findObjectPtr();
     }
     
+    // put object back in pool
     static void releaseObjectPtr(void *_p) {
         return instance().returnObjectPtr(_p);
     }
@@ -44,7 +47,7 @@ class MemoryPool
             return p;
         }
     }
-    
+
     void returnObjectPtr(void *_p) {
         std::lock_guard<std::mutex> lock(m_mutex);
         m_pool.push_back(_p);

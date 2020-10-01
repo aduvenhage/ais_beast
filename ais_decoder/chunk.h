@@ -4,7 +4,10 @@
 #include "mem_pool.h"
  
 
-// Fixed size array of decoder structures
+/*
+    Fixed size array of decoder structures. Interface allows sequential access to data.
+    Overloaded new/delelete memory operators allows for better performance optimisation.
+ */
 template <typename payload_type, int N>
 struct Chunk
 {

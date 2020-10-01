@@ -21,12 +21,12 @@
 
 
 template <typename payload_type>
-using Queue = LockFreeQueue<payload_type, 1024>;
+using Queue = BlockingQueue<payload_type, 1024>;
 
 Queue<std::unique_ptr<Fragments>> fragmentQueue;
 Queue<std::unique_ptr<Messages>> messageQueue;
 Queue<std::unique_ptr<Payloads>> payloadQueue;
-String<1024*512> nmeaData;
+String<1024*64> nmeaData;
 
 
 using Clock = std::chrono::high_resolution_clock;
@@ -36,14 +36,17 @@ FILE *fin = nullptr;
 void readFromFile()
 {
     // read from file
-    if ( (fin == nullptr) ||
+    if (fin == nullptr)
+    {
+        fin = fopen("data/Smithland.txt", "rb");
+    }
+    
+    if ( (fin != nullptr) &&
          (feof(fin) == 1) )
     {
-        if (fin != nullptr) {
-            fclose(fin);
-        }
-        
-        fin = fopen("data/nmea-sample.txt", "rb");
+        fclose(fin);
+        fin = nullptr;
+        //throw std::runtime_error("file done");
     }
     
     if ( (fin != nullptr) &&
@@ -60,9 +63,6 @@ void readFromFile()
         memcpy(nmeaData.data(), nmeaData.data() + bytesUsed, droppedSize);
         nmeaData.setSize(droppedSize);
     }
-    else {
-        std::this_thread::sleep_for(std::chrono::milliseconds(0));
-    }
 }
 
 
@@ -75,18 +75,14 @@ void readFragments() {
 
 void procFragmentsQueue() {
     for (;;) {
-        if (processFragments(messageQueue, fragmentQueue) == 0) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(0));
-        }
+        processFragments(messageQueue, fragmentQueue);
     }
 }
 
 
 void procMessagesQueue() {
     for (;;) {
-        if (processMessages(payloadQueue, messageQueue) == 0) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(0));
-        }
+        processMessages(payloadQueue, messageQueue);
     }
 }
 
@@ -96,8 +92,8 @@ void procPayloadsQueue() {
     size_t uMsgCount = 0;
     
     for (;;) {
-        std::unique_ptr<Payloads> pPayloads;
-        if (payloadQueue.pop(pPayloads) == true) {
+        auto pPayloads = payloadQueue.pop();
+        if (pPayloads != nullptr) {
             for (MsgPayload &p : *pPayloads) {
                 size_t uBitIndex = 0;
                 
@@ -142,15 +138,12 @@ void procPayloadsQueue() {
                 
                 if (uMsgCount > 5000000) {
                     auto td = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - ts).count() * 1e-09;
-                    printf("message = %lu, per second = %.2f\n", uMsgCount, (float)(uMsgCount / td));
+                    printf("messages per second = %.2f\n", (float)(uMsgCount / td));
 
                     ts = Clock::now();
                     uMsgCount = 0;
                 }
             }
-        }
-        else {
-            //std::this_thread::sleep_for(std::chrono::milliseconds(0));
         }
     }
 }
@@ -180,9 +173,9 @@ int main() {
     }
     
     thread1.join();
-    thread1.join();
-    thread1.join();
-    thread1.join();
+    thread2.join();
+    thread3.join();
+    thread4.join();
 }
 
 

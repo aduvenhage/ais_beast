@@ -8,6 +8,7 @@
 #include <array>
 #include <string>
 #include <mutex>
+#include <condition_variable>
 
 
 
@@ -16,74 +17,84 @@ constexpr bool isPowerOf2(int _n) {
 }
 
 
-/* Ring buffer based queue (lock free and thread-safe for single producer / single consumer) */
+/*
+   Ring buffer based queue (thread-safe for multiple producers and consumers).
+   Pop and push operations may block.
+ */
 template <typename payload_type, int N>
-class LockFreeQueue
+class BlockingQueue
 {
  static_assert(isPowerOf2(N), "Queue internal size should be a power of two.");
  protected:
     const size_t            MASK = N-1;
     
  public:
-    LockFreeQueue()
-        :m_uFront(0),
+    BlockingQueue()
+        :m_uSize(0),
+         m_uFront(0),
          m_uBack(0)
     {}
     
     template <typename T>
     bool push(T &&_p) {
-        if (full() == true) {
-            return false;
-        }
-        
+        std::unique_lock<std::mutex> lock(m_mutex);
+        m_cv.wait(lock, [&]{return !full();});
+
         m_array[m_uBack & MASK] = std::forward<T>(_p);
         m_uBack++;
+        m_uSize = m_uBack - m_uFront;
+
+        lock.unlock();
+        m_cv.notify_one();
         return true;
     }
     
-    payload_type &back() { 
-        return m_array[(m_uBack-1) & MASK];
-    }
-    
     bool pop(payload_type &_p) {
-        if (empty() == true) {
-            return false;
-        }
-        
+        std::unique_lock<std::mutex> lock(m_mutex);
+        m_cv.wait(lock, [&]{return !empty();});
+
         _p = std::move(m_array[m_uFront & MASK]);
         m_uFront++;
+        m_uSize = m_uBack - m_uFront;
+
+        lock.unlock();
+        m_cv.notify_one();
         return true;
     }
     
     payload_type pop() {
-        if (empty() == true) {
-            return payload_type();
-        }
-        
+        std::unique_lock<std::mutex> lock(m_mutex);
+        m_cv.wait(lock, [&]{return !empty();});
+
         auto p = std::move(m_array[m_uFront & MASK]);
         m_uFront++;
+        m_uSize = m_uBack - m_uFront;
+
+        lock.unlock();
+        m_cv.notify_one();
         return p;
     }
     
     bool empty() const {
-        return m_uBack == m_uFront;
+        return m_uSize == 0;
     }
     
     bool full() const {
-        return m_uBack - m_uFront >= N;
+        return m_uSize >= N;
     }
     
     size_t size() const {
-        return m_uBack - m_uFront;
+        return m_uSize;
     }
     
  private:
     std::array<payload_type, N>    m_array;
-    std::atomic<uint32_t>          m_uFront;
-    std::atomic<uint32_t>          m_uBack;
+    std::mutex                     m_mutex;
+    std::condition_variable        m_cv;
+    std::atomic<uint32_t>          m_uSize;
+    uint32_t                       m_uFront;
+    uint32_t                       m_uBack;
 };
-
-
 
 
 

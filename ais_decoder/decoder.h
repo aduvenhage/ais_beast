@@ -7,6 +7,7 @@
 #include <array>
 #include <cstring>
 #include <string>
+#include <charconv>
 
 
 const size_t MAX_FRAGMENTS              = 2;
@@ -23,6 +24,7 @@ struct NmeaFrg
 {
     FrgStr      m_sentence;             // whole sentence (starting '$' and '!' removed)
     StringRef   m_payload;              // words[5] -- armoured ASCII payload
+    uint64_t    m_uTimestamp;           // unix timestamp
     uint8_t     m_uFragmentCount;       // words[1] -- single digit integer
     uint8_t     m_uFragmentNum;         // words[2] -- single digit integer
     uint8_t     m_uMsgId;               // words[3] -- multi-sentence set id
@@ -101,6 +103,42 @@ bool checkType(const char *_pId) {
     // NOTE: essentially allow all talker IDs (first 2 chars -- AB, AI, BS, SA, etc.)
     return (strncmp(_pId+2, "VDM", 3) == 0) ||
            (strncmp(_pId+2, "VDO", 3) == 0);
+}
+
+
+/* Try to read optional sentence header. Returns the number of bytes read. */
+size_t readHeader(NmeaFrg &_frg, const char *_pData, size_t _uSize) {
+    // fragment init
+    _frg.m_uTimestamp = 0;
+    
+    // header decoding (ORBCOMM-MSA)
+    const char *pBegin = _pData;
+    if (*pBegin == '\\') {
+        const char *pEnd = (const char*)memchr(pBegin+1, '\\', _uSize);
+        if (pEnd != nullptr) {
+            // find timestamp
+            char *pCh = const_cast<char*>(pBegin+1);
+            while (pCh < pEnd) {
+                if (strncmp(pCh, "c:", 2) == 0) {
+                    char *pTsBegin = pCh + 2;
+                    char *pTsEnd = (char*)memchr(pTsBegin, ',', pEnd - pTsBegin);                    
+                    std::from_chars(pTsBegin, pTsEnd, _frg.m_uTimestamp);
+                    break;
+                }
+
+                ++pCh;
+            }
+            
+            return pEnd - pBegin + 1;
+        }
+    }
+    
+    // header decoding (???)
+    else {
+        // TODO
+    }
+    
+    return 0;
 }
 
 

@@ -6,9 +6,11 @@
 #include "queue.h"
 
 #include <memory>
+#include <cstring>
 
 
 const size_t AIS_CHUNK_SIZE = 512;
+const int MAX_PROC_COUNT = 512;
 using Fragments = Chunk<NmeaFrg, AIS_CHUNK_SIZE>;
 using Messages = Chunk<NmeaMsg, AIS_CHUNK_SIZE>;
 using Payloads = Chunk<MsgPayload, AIS_CHUNK_SIZE>;
@@ -18,6 +20,9 @@ using Payloads = Chunk<MsgPayload, AIS_CHUNK_SIZE>;
     Process NMEA raw input data.
     Processes only one chunk of data at a time.
     Returns the number of bytes processed from the input.
+    
+    QueueFragments has to be a compatible container holding Fragments (defined above).
+    
  */
 template <typename QueueFragments, typename NmeaData>
 size_t processNmeaData(QueueFragments &_fragmentQueue, const NmeaData &_nmeaData)
@@ -28,23 +33,20 @@ size_t processNmeaData(QueueFragments &_fragmentQueue, const NmeaData &_nmeaData
     std::unique_ptr<Fragments> pFragments;
     
     while (pData < pEnd) {
-        // stop if queue is full
-        if (_fragmentQueue.full() == true) {
-            break;
-        }
-        
         if (pFragments == nullptr) {
             pFragments = std::make_unique<Fragments>();
         }
         
-        // TODO: process header and footer on special formats
+        // process optional header
+        auto &fragment = pFragments->push_back();
+        size_t n = readHeader(fragment, pData, pEnd - pData);
+        pData += n;
 
         // skip '!' and '$'
         pData = (*pData == '!') ? pData + 1 : pData;
         pData = (*pData == '$') ? pData + 1 : pData;
 
-        auto &fragment = pFragments->push_back();
-        size_t n = readSentence(fragment, pData, pEnd - pData);
+        n = readSentence(fragment, pData, pEnd - pData);
         if (n > 0) {
             // read EOLs
             pData += n;
@@ -88,16 +90,16 @@ size_t processNmeaData(QueueFragments &_fragmentQueue, const NmeaData &_nmeaData
     Process fragments and produce messages.
     Stops when output queue is full.
     Returns the number of fragments processed.
+    
+    QueueFragments has to be a compatible container holding Fragments (defined above).
+    QueueMessages has to be a compatible container holding Messages (defined above).
+    
 */
 template <typename QueueMessages, typename QueueFragments>
 size_t processFragments(QueueMessages &_messageQueue, QueueFragments &_fragmentQueue)
 {
     size_t count = 0;
-    for (int i = 0; i < 128; i++) {
-        if (_messageQueue.full() == true) {
-            break;
-        }
-        
+    for (int i = 0; i < MAX_PROC_COUNT; i++) {
         auto pFragments = _fragmentQueue.pop();
         if (pFragments == nullptr) {
             break;
@@ -130,16 +132,16 @@ size_t processFragments(QueueMessages &_messageQueue, QueueFragments &_fragmentQ
     Process messages and produce decoded payloads.
     Stops when output queue is full.
     Returns the number of messages processed.
+    
+    QueueMessages has to be a compatible container holding Messages (defined above).
+    QueuePayloads has to be a compatible container holding Payloads (defined above).
+    
 */
 template <typename QueuePayloads, typename QueueMessages>
 size_t processMessages(QueuePayloads &_payloadQueue, QueueMessages &_messageQueue)
 {
     size_t count = 0;
-    for (int i = 0; i < 128; i++) {
-        if (_payloadQueue.full() == true) {
-            break;
-        }
-        
+    for (int i = 0; i < MAX_PROC_COUNT; i++) {
         auto pMessages = _messageQueue.pop();
         if (pMessages == nullptr) {
             break;
