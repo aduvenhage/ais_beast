@@ -22,7 +22,6 @@ Current stats:
 - Debug build: 5M+ messages per second
 - Release build: 17M+ messages per second
 
-
 DONE:
 - decoding structures (fragments, messages, payloads)
 - basic nmea sentence decoding
@@ -32,7 +31,6 @@ DONE:
 - overloaded memory operators for memory structures, so that we can reuse objects
 - multi-sentence fragment decoding
 - replace lock-free queue with a locking and blocking queue (using condition variables)
-
 
 TODO:
 - support cuda

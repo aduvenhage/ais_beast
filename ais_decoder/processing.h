@@ -22,7 +22,6 @@ using Payloads = Chunk<MsgPayload, AIS_CHUNK_SIZE>;
     Returns the number of bytes processed from the input.
     
     QueueFragments has to be a compatible container holding Fragments (defined above).
-    
  */
 template <typename QueueFragments, typename NmeaData>
 size_t processNmeaData(QueueFragments &_fragmentQueue, const NmeaData &_nmeaData)
@@ -93,7 +92,6 @@ size_t processNmeaData(QueueFragments &_fragmentQueue, const NmeaData &_nmeaData
     
     QueueFragments has to be a compatible container holding Fragments (defined above).
     QueueMessages has to be a compatible container holding Messages (defined above).
-    
 */
 template <typename QueueMessages, typename QueueFragments>
 size_t processFragments(QueueMessages &_messageQueue, QueueFragments &_fragmentQueue)
@@ -135,7 +133,6 @@ size_t processFragments(QueueMessages &_messageQueue, QueueFragments &_fragmentQ
     
     QueueMessages has to be a compatible container holding Messages (defined above).
     QueuePayloads has to be a compatible container holding Payloads (defined above).
-    
 */
 template <typename QueuePayloads, typename QueueMessages>
 size_t processMessages(QueuePayloads &_payloadQueue, QueueMessages &_messageQueue)
