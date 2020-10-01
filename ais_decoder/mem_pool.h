@@ -9,10 +9,7 @@
 
 
 
-<<<<<<< HEAD
 /* Stack like pool of memory for a single type. */
-=======
->>>>>>> 3db7dbd1d6a2822f0d5808d54bb5f20f46d3ad72
 template <typename obj_type>
 class MemoryPool
 {
@@ -28,18 +25,12 @@ class MemoryPool
         return thePool;
     }
     
-<<<<<<< HEAD
     // allocate or find available objects
-=======
->>>>>>> 3db7dbd1d6a2822f0d5808d54bb5f20f46d3ad72
     static void *getObjectPtr() {
         return instance().findObjectPtr();
     }
     
-<<<<<<< HEAD
     // put object back in pool
-=======
->>>>>>> 3db7dbd1d6a2822f0d5808d54bb5f20f46d3ad72
     static void releaseObjectPtr(void *_p) {
         return instance().returnObjectPtr(_p);
     }
@@ -56,11 +47,7 @@ class MemoryPool
             return p;
         }
     }
-<<<<<<< HEAD
 
-=======
-    
->>>>>>> 3db7dbd1d6a2822f0d5808d54bb5f20f46d3ad72
     void returnObjectPtr(void *_p) {
         std::lock_guard<std::mutex> lock(m_mutex);
         m_pool.push_back(_p);
