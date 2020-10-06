@@ -10,6 +10,7 @@
 #include <mutex>
 #include <condition_variable>
 
+using namespace std::literals::chrono_literals;
 
 
 constexpr bool isPowerOf2(int _n) {
@@ -49,9 +50,11 @@ class BlockingQueue
         return true;
     }
     
-    bool pop(payload_type &_p) {
+    bool pop(payload_type &_p, const std::chrono::milliseconds &_timeout = 5000ms) {
         std::unique_lock<std::mutex> lock(m_mutex);
-        m_cv.wait(lock, [&]{return !empty();});
+        if (m_cv.wait_for(lock, _timeout, [&]{return !empty();}) == false) {
+            return false;
+        }
 
         _p = std::move(m_array[m_uFront & MASK]);
         m_uFront++;
@@ -62,9 +65,11 @@ class BlockingQueue
         return true;
     }
     
-    payload_type pop() {
+    payload_type pop(const std::chrono::milliseconds &_timeout = 5000ms) {
         std::unique_lock<std::mutex> lock(m_mutex);
-        m_cv.wait(lock, [&]{return !empty();});
+        if (m_cv.wait_for(lock, _timeout, [&]{return !empty();}) == false) {
+            return payload_type{};
+        }
 
         auto p = std::move(m_array[m_uFront & MASK]);
         m_uFront++;

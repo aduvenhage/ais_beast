@@ -3,6 +3,7 @@
 #include "ais_decoder/decoder.h"
 #include "ais_decoder/processing.h"
 #include "ais_decoder/queue.h"
+#include "ais_decoder/tiff.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -27,15 +28,22 @@ Queue<std::unique_ptr<Fragments>> fragmentQueue;
 Queue<std::unique_ptr<Messages>> messageQueue;
 Queue<std::unique_ptr<Payloads>> payloadQueue;
 String<1024*64> nmeaData;
+std::atomic<bool> fileFinished = false;
+std::atomic<uint32> msgCount = 0;
+
+const int OUTPUT_WIDTH = 1024 * 4;
+const int OUTPUT_HEIGHT = 1024 * 4;
+std::vector<uint16_t> image(OUTPUT_WIDTH * OUTPUT_HEIGHT, 0);
+int pixelMax = 0;
+
 
 
 using Clock = std::chrono::high_resolution_clock;
 FILE *fin = nullptr;
 
 
-void readFromFile()
+bool readFromFile()
 {
-    // read from file
     if (fin == nullptr)
     {
         fin = fopen("data/Smithland.txt", "rb");
@@ -46,7 +54,7 @@ void readFromFile()
     {
         fclose(fin);
         fin = nullptr;
-        //throw std::runtime_error("file done");
+        return false;   // finished reading file
     }
     
     if ( (fin != nullptr) &&
@@ -63,35 +71,58 @@ void readFromFile()
         memcpy(nmeaData.data(), nmeaData.data() + bytesUsed, droppedSize);
         nmeaData.setSize(droppedSize);
     }
+    
+    return true;    // still busy on file
 }
 
 
 void readFragments() {
-    for (;;) {
-        readFromFile();
+    bool hasData = true;
+    while (hasData == true) {
+        auto bBusy = readFromFile();
+
+        // check if we are done with file
+        if (bBusy == false) {
+            fileFinished = true;
+            hasData = false;
+        }
     }
 }
 
 
 void procFragmentsQueue() {
-    for (;;) {
+    bool hasData = true;
+    while (hasData == true) {
         processFragments(messageQueue, fragmentQueue);
+        
+        // check if we are done with file and no more data in input queue
+        if ( (fileFinished == true) &&
+             (fragmentQueue.empty() == true) )
+        {
+            hasData = false;
+        }
     }
 }
 
 
 void procMessagesQueue() {
-    for (;;) {
+    bool hasData = true;
+    while (hasData == true) {
         processMessages(payloadQueue, messageQueue);
+        
+        // check if we are done with file and no more data in input queue
+        if ( (fileFinished == true) &&
+             (messageQueue.empty() == true) )
+        {
+            hasData = false;
+        }
     }
 }
 
 
 void procPayloadsQueue() {
-    auto ts = Clock::now();
-    size_t uMsgCount = 0;
-    
-    for (;;) {
+    bool hasData = true;
+    while (hasData == true) {
         auto pPayloads = payloadQueue.pop();
         if (pPayloads != nullptr) {
             for (MsgPayload &p : *pPayloads) {
@@ -131,19 +162,69 @@ void procPayloadsQueue() {
                     getBoolValue(p, uBitIndex);          // RAIM
                     getUnsignedValue(p, uBitIndex, 19);     // radio status
                     
-                    //printf("mmsi=%lu, lon=%lu, lat=%lu\n", mmsi, posLon, posLat);
+                    float dLat = -(posLat/600000.0f - 37.2) * 150;
+                    float dLon = (posLon/600000.0f + 88.2) * 150;
+                    
+                    int y = (int)((dLat / 90.0 + 0.5) * OUTPUT_HEIGHT);
+                    int x = (int)((dLon / 180.0 + 0.5) * OUTPUT_WIDTH);
+                    if ((y < OUTPUT_HEIGHT) &&
+                        (y >= 0) &&
+                        (x < OUTPUT_WIDTH) &&
+                        (x >= 0) )
+                    {
+                        size_t offset = y * OUTPUT_WIDTH + x;
+                        image[offset] += 1000;
+                        pixelMax = std::max((int)image[offset], pixelMax);
+                    }
                 }
 
-                uMsgCount++;
-                
-                if (uMsgCount > 5000000) {
-                    auto td = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - ts).count() * 1e-09;
-                    printf("messages per second = %.2f\n", (float)(uMsgCount / td));
-
-                    ts = Clock::now();
-                    uMsgCount = 0;
-                }
+                msgCount++;
             }
+        }
+                
+        // check if we are done with file and no more data in input queue
+        if ( (fileFinished == true) &&
+             (payloadQueue.empty() == true) )
+        {
+            hasData = false;
+        }
+    }
+}
+
+
+void statusReport() {
+    double msgRate = 0;
+    auto tsOld = Clock::now();
+    
+    bool hasData = true;
+    while (hasData == true) {
+        auto ts = Clock::now();
+        auto td = std::chrono::duration_cast<std::chrono::nanoseconds>(ts - tsOld).count() * 1e-09;
+        msgRate = msgCount / td;
+        tsOld = ts;
+        msgCount = 0;
+    
+        printf("frgq=%d, msgq=%d, pldq=%d, rate=%.2f\n",
+               (int)fragmentQueue.size(),
+               (int)messageQueue.size(),
+               (int)payloadQueue.size(),
+               (float)msgRate);
+               
+        // check if we are done with file and no more data in input queue
+        if ( (fileFinished == true) &&
+             (payloadQueue.empty() == true) )
+        {
+            hasData = false;
+            printf("done.\n");
+            
+            for (size_t i = 0; i < image.size(); i++) {
+                image[i] = image[i] / (double)pixelMax * ((2 << 16) - 1);
+            }
+            
+            writeTiffFileInt16("test.tiff", OUTPUT_WIDTH, OUTPUT_HEIGHT, (uint16_t*)image.data());
+        }
+        else {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
         }
     }
 }
@@ -153,29 +234,18 @@ void procPayloadsQueue() {
     
 
 int main() {
-    int s1 = sizeof(NmeaFrg);
-    int s2 = sizeof(NmeaMsg);
-    int s3 = sizeof(MsgPayload);
-    
     
     auto thread1 = std::thread(readFragments);
     auto thread2 = std::thread(procFragmentsQueue);
     auto thread3 = std::thread(procMessagesQueue);
     auto thread4 = std::thread(procPayloadsQueue);
-    
-    for (;;) {
-        printf("frgq=%d, msgq=%d, pldq=%d\n",
-               (int)fragmentQueue.size(),
-               (int)messageQueue.size(),
-               (int)payloadQueue.size());
-               
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-    }
+    auto thread5 = std::thread(statusReport);
     
     thread1.join();
     thread2.join();
     thread3.join();
     thread4.join();
+    thread5.join();
 }
 
 
