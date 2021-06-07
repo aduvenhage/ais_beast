@@ -3,7 +3,7 @@ Next version of AIS decoder (multi-threaded and hopefully GPU enabled)
 - Previous version of decoder: https://github.com/aduvenhage/ais-decoder
 - Ais reference: https://gpsd.gitlab.io/gpsd/AIVDM.html
 
-While the previous version focused extensibility and also on support for different formats, the intent with this verion is to focus on speed.
+While the previous version focused on extensibility and also on support for different formats, the intent with this verion is to focus on speed.
 The decoder is broken into stages:
 - input (nmea raw sentence decoding)
 - fragment CRC checks and multi-line support
