@@ -1,5 +1,5 @@
 # ais_beast
-Next version of AIS decoder (multi-threaded and hopefully GPU enabled)
+Next (Experimental) version of AIS decoder (multi-threaded and hopefully GPU enabled)
 - Previous version of decoder: https://github.com/aduvenhage/ais-decoder
 - Ais reference: https://gpsd.gitlab.io/gpsd/AIVDM.html
 
