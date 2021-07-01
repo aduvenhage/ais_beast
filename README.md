@@ -1,6 +1,7 @@
 # ais_beast
 Next (Experimental) version of AIS decoder (multi-threaded and hopefully GPU enabled)
 - Previous version of decoder: https://github.com/aduvenhage/ais-decoder
+  (much more mature version with python bindings)
 - Ais reference: https://gpsd.gitlab.io/gpsd/AIVDM.html
 
 While the previous version focused on extensibility and also on support for different formats, the intent with this verion is to focus on speed.
